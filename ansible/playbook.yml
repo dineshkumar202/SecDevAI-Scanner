@@ -1,12 +1,15 @@
+# Phase 4: Configuration Management
+# This playbook deploys the K8s manifests.
+# It is designed to be run from the GitHub Actions pipeline.
 - name: Deploy SecDevAI-Scanner to AKS
   hosts: localhost
   connection: local
-  gather_facts: false
-
+  
+  # These variables will be passed in by the GitHub Actions workflow
   vars:
-    image_tag: "{{ image_tag | default('latest') }}"
-    acr_name: "{{ acr_name | default('secdevaiacr') }}"
-    gemini_api_key: "{{ gemini_api_key | default('') }}"
+    image_tag: "{{ github_sha }}" # Default, can be overridden
+    acr_name: "{{ acr_name_from_pipeline }}"
+    gemini_api_key: "{{ gemini_key_from_secrets }}"
 
   tasks:
     - name: Ensure kubernetes.core collection is present
@@ -14,28 +17,39 @@
       changed_when: false
 
     - name: 1. Apply Kubernetes Deployment manifest
+      # This task applies the deployment.yml manifest
+      # It uses the k8s module to be idempotent.
       kubernetes.core.k8s:
         state: present
         src: deployment.yml
+        namespace: default  # <<< FIX IS HERE
+        # The k8s module will look for deployment.yml in the same directory
 
-    - name: 2. Apply Kubernetes Service manifest
+    - name: 2. Apply Kubernetes Service
+      # This task applies the service.yml manifest
       kubernetes.core.k8s:
         state: present
         src: service.yml
+        namespace: default  # <<< FIX IS HERE
+        # The k8s module will look for service.yml in the same directory
 
-    - name: 3. Patch Deployment with new image and env
+    - name: 3. Trigger a rolling update of the deployment
+      # This is the most important step for CI/CD.
+      # We "patch" the deployment to force it to use the new image.
+      # Ansible will replace the placeholder variables.
       kubernetes.core.k8s:
         state: patched
         kind: Deployment
         name: secdevai-app
-        namespace: default
+        namespace: default  # <<< FIX IS HERE
         definition:
           spec:
             template:
               spec:
                 containers:
-                - name: secdevai-container
-                  image: "{{ acr_name }}.azurecr.io/secdevai-scanner:{{ image_tag }}"
-                  env:
-                  - name: GEMINI_API_KEY
-                    value: "{{ gemini_api_key }}"
+                  - name: secdevai-container
+                    image: "{{ acr_name }}.azurecr.io/secdevai-scanner:{{ image_tag }}"
+                    env:
+                      - name: GEMINI_API_KEY
+                        value: "{{ gemini_api_key }}"
+
