@@ -1,0 +1,75 @@
+name: CI/CD Pipeline for SecDevAI-Scanner
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  AZURE_RESOURCE_GROUP: "secdevai-rg"      # must match terraform output
+  ACR_NAME: "secdevaiacruniquename"        # replace with your unique ACR name
+  AKS_CLUSTER_NAME: "secdevai-aks"
+  DOCKER_IMAGE_NAME: "secdevai-scanner"
+
+jobs:
+  build:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set image tag
+        id: tag
+        run: echo "TAG=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+
+      - name: ACR login & build/push
+        env:
+          ACR_NAME: ${{ env.ACR_NAME }}
+          TAG: ${{ steps.tag.outputs.TAG }}
+        run: |
+          az acr login -n $ACR_NAME
+          docker build -t ${ACR_NAME}.azurecr.io/${{ env.DOCKER_IMAGE_NAME }}:${TAG} ./app
+          docker push ${ACR_NAME}.azurecr.io/${{ env.DOCKER_IMAGE_NAME }}:${TAG}
+    outputs:
+      image_tag: ${{ steps.tag.outputs.TAG }}
+
+  deploy:
+    name: Deploy to AKS with Ansible
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (for kubectl/aks)
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ env.AZURE_RESOURCE_GROUP }}
+          cluster-name: ${{ env.AKS_CLUSTER_NAME }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+          pip3 install ansible kubernetes
+          ansible-galaxy collection install kubernetes.core
+
+      - name: Run Ansible Playbook
+        env:
+          ACR_NAME: ${{ env.ACR_NAME }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          ansible-playbook ansible/playbook.yml             -e "image_tag=${IMAGE_TAG}"             -e "acr_name=${ACR_NAME}"             -e "gemini_api_key=${GEMINI_API_KEY}"

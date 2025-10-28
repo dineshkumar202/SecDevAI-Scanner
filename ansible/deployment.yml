@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secdevai-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: secdevai
+  template:
+    metadata:
+      labels:
+        app: secdevai
+    spec:
+      containers:
+      - name: secdevai-container
+        image: "YOUR_ACR_NAME.azurecr.io/secdevai-scanner:latest"
+        ports:
+        - containerPort: 5000
+        env:
+        - name: GEMINI_API_KEY
+          value: "YOUR_API_KEY_PLACEHOLDER"

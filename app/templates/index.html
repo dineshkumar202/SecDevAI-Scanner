@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SecDevAI-Scanner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>body{font-family:'Inter',sans-serif;}</style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex items-center justify-center">
+  <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+    <header class="text-center mb-8">
+      <h1 class="text-4xl md:text-5xl font-bold text-white mb-2">SecDevAI-Scanner</h1>
+      <p class="text-lg md:text-xl text-cyan-400">AI-Powered Security Analytics for DevOps</p>
+    </header>
+
+    <main class="bg-gray-800 rounded-lg shadow-2xl p-6 md:p-8">
+      <form id="analysis-form" class="mb-6">
+        <label for="text-input" class="block text-sm font-medium text-gray-300 mb-2">
+          Paste your code snippet, log file, or text to analyze:
+        </label>
+        <textarea id="text-input" rows="10"
+          class="w-full p-3 bg-gray-700 border border-gray-600 rounded-md text-gray-200 focus:ring-2 focus:ring-cyan-500 focus:outline-none"
+          placeholder="e.g., <?php $user = $_GET['user']; $sql = 'SELECT * FROM users WHERE name = \' . $user . '\''; ?>"></textarea>
+
+        <button type="submit" id="analyze-button"
+          class="w-full mt-4 px-6 py-3 bg-cyan-600 text-white font-medium rounded-md shadow-md hover:bg-cyan-500 focus:outline-none">
+          Analyze Text
+        </button>
+      </form>
+
+      <div>
+        <h2 class="text-2xl font-semibold text-white mb-4">Analysis Results:</h2>
+        <div id="loading-spinner" class="text-center hidden">
+          <svg class="animate-spin h-8 w-8 text-cyan-400 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p class="mt-2 text-gray-400">Analyzing... this may take a moment.</p>
+        </div>
+
+        <div id="error-message" class="hidden p-4 bg-red-800 border border-red-600 rounded-md text-red-100"></div>
+
+        <div id="results-output" class="p-4 bg-gray-900 rounded-md whitespace-pre-wrap text-gray-200">
+          <p class="text-gray-500">Your analysis results will appear here.</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const form = document.getElementById('analysis-form');
+    const input = document.getElementById('text-input');
+    const button = document.getElementById('analyze-button');
+    const resultsOutput = document.getElementById('results-output');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const errorMessage = document.getElementById('error-message');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const textToAnalyze = input.value;
+      if (!textToAnalyze.trim()) {
+        showError('Please paste some text to analyze.');
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = 'Analyzing...';
+      loadingSpinner.classList.remove('hidden');
+      resultsOutput.classList.add('hidden');
+      errorMessage.classList.add('hidden');
+
+      try {
+        const resp = await fetch('/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text_to_analyze: textToAnalyze })
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Unknown server error');
+
+        resultsOutput.textContent = data.analysis;
+        resultsOutput.classList.remove('hidden');
+      } catch (err) {
+        console.error(err);
+        showError(err.message);
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Analyze Text';
+        loadingSpinner.classList.add('hidden');
+      }
+    });
+
+    function showError(message) {
+      errorMessage.textContent = `Error: ${message}`;
+      errorMessage.classList.remove('hidden');
+      resultsOutput.classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
