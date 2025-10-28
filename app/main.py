@@ -4,77 +4,87 @@ from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
-# Configuration:
-# - Set GEMINI_API_KEY environment variable (or whichever LLM API key you use)
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-# Optional: override with full API URL via env var if you have one
-GEMINI_API_URL = os.environ.get("GEMINI_API_URL") or "https://example-llm.api/endpoint"
+# --- THIS IS THE CRITICAL PART ---
+# Get the API key from environment variables
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+# This is the REAL API URL, not 'example-llm.api'
+API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key={GEMINI_API_KEY}"
+# --- END CRITICAL PART ---
 
-@app.route("/")
+@app.route('/')
 def index():
-    return render_template("index.html")
+    """Renders the main homepage."""
+    return render_template('index.html')
 
-@app.route("/analyze", methods=["POST"])
+@app.route('/analyze', methods=['POST'])
 def analyze():
+    """Handles the analysis request from the frontend."""
     if not GEMINI_API_KEY:
-        return jsonify({"error": "Gemini (LLM) API key not configured on server."}), 500
-
-    payload_json = request.get_json() or {}
-    text_to_analyze = payload_json.get("text_to_analyze", "").strip()
-    if not text_to_analyze:
-        return jsonify({"error": "No text provided for analysis."}), 400
-
-    # System prompt
-    system_prompt = (
-        "You are a senior security analyst. Analyze the following text for security issues "
-        "and return bullet points. Look for hardcoded secrets, SQL injection, XSS, insecure config, "
-        "deprecated/unsafe APIs. If none found, say 'No issues found.'"
-    )
-
-    # Payload format is generic — adapt to the real Gemini API format you use.
-    api_payload = {
-        "system_prompt": system_prompt,
-        "input": text_to_analyze,
-        # include parameters if required by your LLM provider
-    }
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {GEMINI_API_KEY}"
-    }
+        return jsonify({"error": "Gemini API key is not configured on the server."}), 500
 
     try:
-        resp = requests.post(GEMINI_API_URL, json=api_payload, headers=headers, timeout=20)
-        resp.raise_for_status()
-        result = resp.json()
+        # Get the text to analyze from the request
+        text_to_analyze = request.json.get('text_to_analyze')
+        if not text_to_analyze:
+            return jsonify({"error": "No text provided for analysis."}), 400
 
-        # The following parsing is generic — change according to your LLM's response shape.
-        analysis_text = None
-        if isinstance(result, dict):
-            # common spots: 'analysis', 'output', 'choices', 'candidates'
-            analysis_text = result.get("analysis") or result.get("output") or None
-            if not analysis_text and "choices" in result and result["choices"]:
-                choice = result["choices"][0]
-                analysis_text = choice.get("text") or choice.get("message") or None
-            if not analysis_text and "candidates" in result and result["candidates"]:
-                cand = result["candidates"][0]
-                if isinstance(cand, dict):
-                    analysis_text = cand.get("content", {}).get("parts", [{}])[0].get("text")
+        # Define the system prompt for the AI
+        system_prompt = (
+            "You are a senior security analyst. Your task is to analyze the following text "
+            "for any potential security vulnerabilities, flaws, or bad practices. "
+            "Look for things like: \n"
+            "- Hardcoded secrets (API keys, passwords, private keys)\n"
+            "- SQL injection vulnerabilities\n"
+            "- Cross-Site Scripting (XSS) vulnerabilities\n"
+            "- Insecure configurations or logic\n"
+            "- Deprecated or unsafe functions\n"
+            "Provide a concise, bullet-pointed summary of your findings. "
+            "If no issues are found, state that clearly."
+        )
 
-        if not analysis_text:
-            # as a fallback, just return the full JSON as a string (safe for debugging)
-            return jsonify({"analysis": str(result)})
+        # Construct the payload for the Gemini API
+        payload = {
+            "contents": [
+                {
+                    "parts": [{"text": text_to_analyze}]
+                }
+            ],
+            "systemInstruction": {
+                "parts": [{"text": system_prompt}]
+            }
+        }
 
-        return jsonify({"analysis": analysis_text})
+        # Make the API call to the REAL URL
+        response = requests.post(API_URL, json=payload, headers={'Content-Type': 'application/json'})
+        
+        response.raise_for_status() # Raise an exception for bad status codes
+        
+        result = response.json()
+        
+        # Extract the generated text from the AI's response
+        if (
+            "candidates" in result and
+            result["candidates"] and
+            "content" in result["candidates"][0] and
+            "parts" in result["candidates"][0]["content"] and
+            result["candidates"][0]["content"]["parts"]
+        ):
+            analysis_text = result["candidates"][0]["content"]["parts"][0]["text"]
+            return jsonify({"analysis": analysis_text})
+        else:
+            # Handle cases where the API response is not as expected
+            print("Unexpected API response structure:", result)
+            return jsonify({"error": "Failed to parse analysis from API response."}), 500
 
     except requests.exceptions.RequestException as e:
-        app.logger.exception("LLM API request failed")
-        return jsonify({"error": f"Error communicating with LLM service: {e}"}), 503
+        # Handle network errors or bad HTTP responses
+        print(f"Error calling Gemini API: {e}")
+        return jsonify({"error": f"Error communicating with AI service: {e}"}), 503
     except Exception as e:
-        app.logger.exception("Unexpected server error")
-        return jsonify({"error": f"Unexpected error: {e}"}), 500
+        # Handle any other unexpected errors
+        print(f"An unexpected error occurred: {e}")
+        return jsonify({"error": f"An unexpected error occurred: {e}"}), 500
 
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
 
-if __name__ == "__main__":
-    # For simple local testing only. In production we run via Gunicorn (see Dockerfile).
-    app.run(host="0.0.0.0", port=5000, debug=True)
