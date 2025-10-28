@@ -6,7 +6,7 @@ on:
 
 env:
   AZURE_RESOURCE_GROUP: "secdevai-rg"      # must match terraform output
-  ACR_NAME: "secdevaiacruniquename"        # replace with your unique ACR name
+  ACR_NAME: "secdevaiacr22490793"        # replace with your unique ACR name
   AKS_CLUSTER_NAME: "secdevai-aks"
   DOCKER_IMAGE_NAME: "secdevai-scanner"
 
